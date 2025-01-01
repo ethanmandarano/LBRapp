@@ -16,11 +16,10 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
 # server = app.server  # This is for WSGI servers to use
 
 # GitHub data URL
-# GITHUB_RAW_URL = "https://raw.githubusercontent.com/ethanmandarano/LBRapp/refs/heads/main/lumber_data.csv"
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/ethanmandarano/LBRapp/refs/heads/main/lumber_data.csv"
 
-lumber_data_full = pd.read_csv('lumber_data.csv')
 # Load and process the data 
-# lumber_data_full = pd.read_csv(GITHUB_RAW_URL)
+lumber_data_full = pd.read_csv(GITHUB_RAW_URL)
 
 # Extract descriptions (assuming the first row contains descriptions)
 descriptions = lumber_data_full.iloc[0, 1:].to_dict()
@@ -1049,6 +1048,3 @@ def update_basis_range_analysis(*args):
     }
     
     return fig
-
-if __name__ == '__main__':
-     app.run_server(debug=True, host='0.0.0.0', port=8050)

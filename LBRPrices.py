@@ -15,7 +15,7 @@ server = app.server  # This is for WSGI servers to use
 # GitHub data URL
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/ethanmandarano/LBRapp/refs/heads/main/lumber_data.csv"
 
-# Load and process the data
+# Load and process the data 
 lumber_data_full = pd.read_csv(GITHUB_RAW_URL)
 
 # Extract descriptions (assuming the first row contains descriptions)
@@ -490,85 +490,101 @@ def update_seasonality_chart(*args):
 @app.callback(
     Output('seasonality-table', 'data'),
     Output('seasonality-table', 'columns'),
-    [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))] +
-    [Input('date-picker-range', 'start_date'),
-     Input('date-picker-range', 'end_date'),
-     Input('aggregation-method', 'value')]
+    [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))],
+    Input('date-picker-range', 'start_date'),
+    Input('date-picker-range', 'end_date'),
+    Input('aggregation-method', 'value')
 )
 def update_seasonality_table(*args):
-    selected_products_groups = args[:-3]
-    start_date = args[-3]
-    end_date = args[-2]
-    agg_method = args[-1]
+    try:
+        selected_products_groups = args[:-3]
+        start_date = args[-3]
+        end_date = args[-2]
+        agg_method = args[-1]
 
-    # Gather all selected products
-    selected_products = [product for group in selected_products_groups if group for product in group]
+        # Gather all selected products
+        selected_products = [product for group in selected_products_groups if group for product in group]
 
-    if not selected_products:
-        return [], []
+        if not selected_products:
+            return [], []
 
-    # Adjust start_date to include December data of the previous year
-    adjusted_start_date = pd.to_datetime(start_date) - pd.DateOffset(months=1)
+        # Adjust start_date to include December data of the previous year
+        adjusted_start_date = pd.to_datetime(start_date) - pd.DateOffset(months=1)
 
-    # Filter data based on adjusted date range
-    df = lumber_data.copy()
-    df = df[(df['Tag'] >= adjusted_start_date) & (df['Tag'] <= end_date)]
-    df['Year'] = df['Tag'].dt.year
-    df['Month'] = df['Tag'].dt.month
+        # Filter data based on adjusted date range
+        df = lumber_data.copy()
+        df = df[(df['Tag'] >= adjusted_start_date) & (df['Tag'] <= end_date)]
+        df['Year'] = df['Tag'].dt.year
+        df['Month'] = df['Tag'].dt.month
 
-    data_list = []
+        data_list = []
 
-    for product in selected_products:
-        product_df = df[['Year', 'Month', product]].dropna()
-        product_df.sort_values(['Year', 'Month'], inplace=True)
+        for product in selected_products:
+            try:
+                # Convert product column to numeric, replacing any errors with NaN
+                df[product] = pd.to_numeric(df[product], errors='coerce')
+                
+                product_df = df[['Year', 'Month', product]].dropna()
+                product_df.sort_values(['Year', 'Month'], inplace=True)
 
-        # Adjust December data
-        december_df = product_df[product_df['Month'] == 12].copy()
-        december_df['Year'] = december_df['Year'] + 1  # Shift December to the next year
-        december_df['Month'] = 0  # Set month to 0 to represent previous December
+                # Add debug prints
+                print(f"Processing product: {product}")
+                print(f"Product data types: {product_df.dtypes}")
+                print(f"Sample data:\n{product_df.head()}")
 
-        # Combine adjusted December data with main data
-        product_df = pd.concat([product_df, december_df], ignore_index=True)
+                # Create pivot table with explicit numeric conversion
+                product_pivot = product_df.pivot_table(
+                    index='Year',
+                    columns='Month',
+                    values=product,
+                    aggfunc=agg_method,
+                    fill_value=None
+                )
 
-        # Create pivot_table including month 0
-        product_pivot = product_df.pivot_table(index='Year', columns='Month', values=product, aggfunc=agg_method)
+                # Calculate percentage changes
+                pct_change = product_pivot.pct_change(axis=1) * 100
 
-        # Ensure months are in correct order, including month 0
-        product_pivot = product_pivot.reindex(columns=range(0, 13))
+                # Handle infinite and NaN values
+                pct_change.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-        # Convert data to numeric
-        product_pivot = product_pivot.apply(pd.to_numeric, errors='coerce')
-
-        # Calculate percentage change from previous month
-        pct_change = product_pivot.pct_change(axis=1) * 100
-
-        # Handle infinite and NaN values
-        pct_change.replace([np.inf, -np.inf], np.nan, inplace=True)
-
-        # Prepare data for the table
-        for year in pct_change.index:
-            row = {'Product': descriptions[product], 'Year': int(year)}
-            for month in range(1, 13):  # Months 1 to 12
-                if month in pct_change.columns:
-                    value = pct_change.loc[year, month]
-                    if pd.notnull(value):
-                        # Limit to realistic percentage change values
-                        if -1000 < value < 1000:
-                            row[calendar.month_name[month]] = f"{round(value, 2)}%"
+                # Prepare data for the table
+                for year in pct_change.index:
+                    row = {'Product': descriptions[product], 'Year': int(year)}
+                    for month in range(1, 13):
+                        if month in pct_change.columns:
+                            value = pct_change.loc[year, month]
+                            if pd.notnull(value) and -1000 < value < 1000:
+                                row[calendar.month_name[month]] = f"{round(value, 2)}%"
+                            else:
+                                row[calendar.month_name[month]] = 'N/A'
                         else:
-                            row[calendar.month_name[month]] = 'N/A'
-                    else:
-                        row[calendar.month_name[month]] = ''
-                else:
-                    row[calendar.month_name[month]] = ''
-            data_list.append(row)
+                            row[calendar.month_name[month]] = ''
+                    data_list.append(row)
 
-    # Prepare columns for the table
-    columns = [{'name': 'Product', 'id': 'Product'}, {'name': 'Year', 'id': 'Year'}]
-    for month in range(1, 13):
-        columns.append({'name': calendar.month_name[month], 'id': calendar.month_name[month]})
+            except Exception as e:
+                print(f"Error processing product {product}: {str(e)}")
+                continue
 
-    return data_list, columns
+        # Prepare columns for the table
+        columns = [
+            {'name': 'Product', 'id': 'Product'},
+            {'name': 'Year', 'id': 'Year'}
+        ]
+        for month in range(1, 13):
+            columns.append({
+                'name': calendar.month_name[month],
+                'id': calendar.month_name[month]
+            })
+
+        if not data_list:
+            return [], columns
+
+        return data_list, columns
+
+    except Exception as e:
+        print(f"Error in update_seasonality_table: {str(e)}")
+        # Return empty data with basic columns as fallback
+        return [], [{'name': 'Product', 'id': 'Product'}, {'name': 'Year', 'id': 'Year'}]
 
 
 # Callback for updating the statistical summary table
@@ -743,5 +759,5 @@ def update_3d_graph(*args):
     }
     return figure
 
-#if __name__ == '__main__':
-    #app.run_server(debug=True, host='0.0.0.0', port=8050)
+# if __name__ == '__main__':
+#     app.run_server(debug=True, host='0.0.0.0', port=8050)

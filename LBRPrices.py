@@ -13,7 +13,7 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
 server = app.server  # This is for WSGI servers to use
 
 # GitHub data URL
-GITHUB_RAW_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/lumber_data.csv"
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/ethanmandarano/LBRapp/refs/heads/main/lumber_data.csv"
 
 # Load and process the data
 lumber_data_full = pd.read_csv(GITHUB_RAW_URL)
@@ -743,5 +743,5 @@ def update_3d_graph(*args):
     }
     return figure
 
-if __name__ == '__main__':
-    app.run_server(debug=True, host='0.0.0.0', port=8050)
+#if __name__ == '__main__':
+    #app.run_server(debug=True, host='0.0.0.0', port=8050)

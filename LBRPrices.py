@@ -13,7 +13,7 @@ from PIL import ImageColor
 
 # Initialize the app with a Bootstrap stylesheet
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
-# server = app.server  # This is for WSGI servers to use
+server = app.server  # This is for WSGI servers to use
 
 # GitHub data URL
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/ethanmandarano/LBRapp/refs/heads/main/lumber_data.csv"

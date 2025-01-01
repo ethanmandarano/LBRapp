@@ -7,16 +7,20 @@ import pandas as pd
 import numpy as np
 from dash.exceptions import PreventUpdate
 import calendar
+from scipy import stats
+import plotly.express as px
+from PIL import ImageColor
 
 # Initialize the app with a Bootstrap stylesheet
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
-server = app.server  # This is for WSGI servers to use
+# server = app.server  # This is for WSGI servers to use
 
 # GitHub data URL
-GITHUB_RAW_URL = "https://raw.githubusercontent.com/ethanmandarano/LBRapp/refs/heads/main/lumber_data.csv"
+# GITHUB_RAW_URL = "https://raw.githubusercontent.com/ethanmandarano/LBRapp/refs/heads/main/lumber_data.csv"
 
+lumber_data_full = pd.read_csv('lumber_data.csv')
 # Load and process the data 
-lumber_data_full = pd.read_csv(GITHUB_RAW_URL)
+# lumber_data_full = pd.read_csv(GITHUB_RAW_URL)
 
 # Extract descriptions (assuming the first row contains descriptions)
 descriptions = lumber_data_full.iloc[0, 1:].to_dict()
@@ -39,7 +43,6 @@ lumber_data.sort_values('Tag', inplace=True)
 # Reset the index if necessary
 lumber_data.reset_index(drop=True, inplace=True)
 
-# ... existing code ...
 
 # Get the latest prices and second-to-latest prices
 latest_prices = lumber_data.iloc[-1, 1:].to_dict()
@@ -75,32 +78,57 @@ for col, desc in descriptions.items():
         
         products_by_type[type_name].append({
             'label': html.Div([
-                html.Span(
-                    f"{desc} ${latest_prices.get(col, 'N/A')} ",
+                # Description column
+                html.Div(
+                    desc,
                     style={
-                        'white-space': 'nowrap',
+                        'display': 'inline-block',
+                        'width': '60%',  # Adjust width as needed
+                        'padding-right': '10px',
                         'font-size': '13px',
-                        'margin-right': '2px',
-                        'flex-grow': '1'
+                        'white-space': 'nowrap',
+                        'overflow': 'hidden',
+                        'text-overflow': 'ellipsis'
                     }
                 ),
-                html.Span(
-                    f"{arrow}{abs(pct_change):.1f}%",
+                # Price column
+                html.Div(
+                    f"${latest_prices.get(col, 'N/A')}",
                     style={
-                        'color': color,
-                        'white-space': 'nowrap',
+                        'display': 'inline-block',
+                        'width': '20%',  # Adjust width as needed
+                        'text-align': 'right',
+                        'padding-right': '10px',
                         'font-size': '13px',
-                        'min-width': '60px'
+                        'white-space': 'nowrap'
+                    }
+                ),
+                # Percentage change column
+                html.Div(
+                    [
+                        html.Span(
+                            f"{arrow}{abs(pct_change):.1f}%",
+                            style={
+                                'color': color,
+                                'font-size': '13px',
+                                'white-space': 'nowrap'
+                            }
+                        )
+                    ],
+                    style={
+                        'display': 'inline-block',
+                        'width': '20%',  # Adjust width as needed
+                        'text-align': 'right'
                     }
                 )
             ], style={
                 'display': 'flex',
                 'align-items': 'center',
-                'padding': '2px 4px',
-                'margin': '1px',
                 'width': '100%',
-                'box-sizing': 'border-box',
-                'justify-content': 'space-between'
+                'padding': '4px 8px',
+                'border-radius': '4px',
+                'background-color': 'rgba(0,0,0,0.02)',
+                'margin': '2px 0'
             }),
             'value': col
         })
@@ -130,7 +158,7 @@ for idx, (t, products) in enumerate(products_by_type.items()):
 app.layout = dbc.Container([
     dbc.Row([
         dbc.Col([
-            html.H2("Lumber Price Dashboard"),
+            html.H2("Lumber Prices Dashboard"),
             html.Hr(),
             html.Div(checklist_components),
             html.Br(),
@@ -155,7 +183,8 @@ app.layout = dbc.Container([
                     dcc.Dropdown(
                         id='aggregation-method',
                         options=[
-                            {'label': 'Median', 'value': 'median'}
+                            {'label': 'Median', 'value': 'median'},
+                            {'label': 'Average', 'value': 'mean'}
                         ],
                         value='median',
                         clearable=False
@@ -195,25 +224,101 @@ app.layout = dbc.Container([
                 id='seasonality-table',
                 style_table={'overflowX': 'auto'},
                 style_cell={'textAlign': 'left'},
-                style_header={'fontWeight': 'bold'}
+                style_header={'fontWeight': 'bold'},
+                style_data_conditional=[
+                    {
+                        'if': {'row_index': 'odd'},
+                        'backgroundColor': 'rgb(248, 248, 248)'
+                    }
+                ]
             )
         ])
     ]),
     dbc.Row([
         dbc.Col([
-            html.H3("Statistical Summary"),
+            html.H3("Spread Analysis"),
+            html.Div([
+                dbc.Row([
+                    dbc.Col([
+                        html.Label('Base Product:'),
+                        dcc.Dropdown(
+                            id='base-product-dropdown',
+                            options=[],
+                            placeholder='Select base product'
+                        )
+                    ], width=6),
+                    dbc.Col([
+                        html.Label('Spread Type:'),
+                        dcc.Dropdown(
+                            id='spread-type-dropdown',
+                            options=[
+                                {'label': 'Absolute Spread ($)', 'value': 'absolute'},
+                                {'label': 'Percentage Spread (%)', 'value': 'percentage'}
+                            ],
+                            value='absolute',
+                            clearable=False
+                        )
+                    ], width=6),
+                ]),
+                dcc.Graph(id='basis-graph'),
+                html.Br(),
+                html.H4("Spread Statistics"),
+                dash_table.DataTable(
+                    id='basis-stats-table',
+                    style_table={'overflowX': 'auto'},
+                    style_cell={'textAlign': 'left'},
+                    style_header={'fontWeight': 'bold'},
+                    style_data_conditional=[
+                        {
+                            'if': {'row_index': 'odd'},
+                            'backgroundColor': 'rgb(248, 248, 248)'
+                        }
+                    ]
+                )
+            ])
+        ])
+    ]),
+    dbc.Row([
+        dbc.Col([
+            html.H4("Historical Basis Ranges"),
+            dcc.Graph(id='basis-range-box'),
+            html.Div([
+                html.Label('Time Period:'),
+                dcc.Dropdown(
+                    id='basis-period-dropdown',
+                    options=[
+                        {'label': 'Last 30 Days', 'value': '30D'},
+                        {'label': 'Last 90 Days', 'value': '90D'},
+                        {'label': 'Year to Date', 'value': 'YTD'},
+                        {'label': 'Last 12 Months', 'value': '12M'},
+                        {'label': 'All Time', 'value': 'ALL'}
+                    ],
+                    value='12M'
+                )
+            ])
+        ])
+    ]),
+    dbc.Row([
+        dbc.Col([
+            html.H4("3D Volatility Surface"),
+            dcc.Graph(id='3d-price-graph'),
+        ])
+    ]),
+    dbc.Row([
+        dbc.Col([
+            html.H4("Statistical Summary"),
             dash_table.DataTable(
                 id='stats-table',
                 style_table={'overflowX': 'auto'},
                 style_cell={'textAlign': 'left'},
-                style_header={'fontWeight': 'bold'}
+                style_header={'fontWeight': 'bold'},
+                style_data_conditional=[
+                    {
+                        'if': {'row_index': 'odd'},
+                        'backgroundColor': 'rgb(248, 248, 248)'
+                    }
+                ]
             )
-        ])
-    ]),
-    dbc.Row([
-        dbc.Col([
-            html.H3("3D Price Visualization"),
-            dcc.Graph(id='3d-price-graph')
         ])
     ]),
 ], fluid=True)
@@ -490,6 +595,7 @@ def update_seasonality_chart(*args):
 @app.callback(
     Output('seasonality-table', 'data'),
     Output('seasonality-table', 'columns'),
+    Output('seasonality-table', 'style_data_conditional'),
     [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))],
     Input('date-picker-range', 'start_date'),
     Input('date-picker-range', 'end_date'),
@@ -502,73 +608,58 @@ def update_seasonality_table(*args):
         end_date = args[-2]
         agg_method = args[-1]
 
-        # Gather all selected products
         selected_products = [product for group in selected_products_groups if group for product in group]
-
         if not selected_products:
-            return [], []
+            return [], [], []
 
-        # Adjust start_date to include December data of the previous year
-        adjusted_start_date = pd.to_datetime(start_date) - pd.DateOffset(months=1)
-
-        # Filter data based on adjusted date range
+        # Filter data
         df = lumber_data.copy()
-        df = df[(df['Tag'] >= adjusted_start_date) & (df['Tag'] <= end_date)]
+        df = df[(df['Tag'] >= start_date) & (df['Tag'] <= end_date)]
         df['Year'] = df['Tag'].dt.year
         df['Month'] = df['Tag'].dt.month
 
         data_list = []
+        style_data_conditional = []
 
         for product in selected_products:
-            try:
-                # Convert product column to numeric, replacing any errors with NaN
-                df[product] = pd.to_numeric(df[product], errors='coerce')
-                
-                product_df = df[['Year', 'Month', product]].dropna()
-                product_df.sort_values(['Year', 'Month'], inplace=True)
+            df[product] = pd.to_numeric(df[product], errors='coerce')
+            product_df = df[['Year', 'Month', product]].dropna()
 
-                # Add debug prints
-                print(f"Processing product: {product}")
-                print(f"Product data types: {product_df.dtypes}")
-                print(f"Sample data:\n{product_df.head()}")
+            product_df['prev_value'] = product_df[product].shift(1)
+            product_df['pct_change'] = (
+                (product_df[product] - product_df['prev_value']) 
+                / product_df['prev_value']
+            ) * 100
 
-                # Create pivot table with explicit numeric conversion
-                product_pivot = product_df.pivot_table(
-                    index='Year',
-                    columns='Month',
-                    values=product,
-                    aggfunc=agg_method,
-                    fill_value=None
-                )
+            grouped = product_df.groupby(['Year', 'Month'])['pct_change'].agg(agg_method).reset_index()
+            pivot_df = grouped.pivot(index='Year', columns='Month', values='pct_change')
 
-                # Calculate percentage changes
-                pct_change = product_pivot.pct_change(axis=1) * 100
+            for year in pivot_df.index:
+                row = {
+                    'Product': descriptions[product],
+                    'Year': int(year)
+                }
+                for month in range(1, 13):
+                    value = pivot_df.get(month, {}).get(year)
+                    if pd.notnull(value):
+                        row[calendar.month_name[month]] = f"{value:.2f}%"
+                        
+                        # Add conditional styling for this cell
+                        style_data_conditional.append({
+                            'if': {
+                                'filter_query': f'{{Product}} = "{descriptions[product]}" && {{Year}} = {int(year)} && {{{calendar.month_name[month]}}} = "{value:.2f}%"',
+                                'column_id': calendar.month_name[month]
+                            },
+                            'color': 'green' if value > 0 else 'red' if value < 0 else 'black'
+                        })
+                    else:
+                        row[calendar.month_name[month]] = "N/A"
+                data_list.append(row)
 
-                # Handle infinite and NaN values
-                pct_change.replace([np.inf, -np.inf], np.nan, inplace=True)
-
-                # Prepare data for the table
-                for year in pct_change.index:
-                    row = {'Product': descriptions[product], 'Year': int(year)}
-                    for month in range(1, 13):
-                        if month in pct_change.columns:
-                            value = pct_change.loc[year, month]
-                            if pd.notnull(value) and -1000 < value < 1000:
-                                row[calendar.month_name[month]] = f"{round(value, 2)}%"
-                            else:
-                                row[calendar.month_name[month]] = 'N/A'
-                        else:
-                            row[calendar.month_name[month]] = ''
-                    data_list.append(row)
-
-            except Exception as e:
-                print(f"Error processing product {product}: {str(e)}")
-                continue
-
-        # Prepare columns for the table
+        # Build the columns
         columns = [
             {'name': 'Product', 'id': 'Product'},
-            {'name': 'Year', 'id': 'Year'}
+            {'name': 'Year', 'id': 'Year'},
         ]
         for month in range(1, 13):
             columns.append({
@@ -576,15 +667,11 @@ def update_seasonality_table(*args):
                 'id': calendar.month_name[month]
             })
 
-        if not data_list:
-            return [], columns
-
-        return data_list, columns
+        return data_list, columns, style_data_conditional
 
     except Exception as e:
         print(f"Error in update_seasonality_table: {str(e)}")
-        # Return empty data with basic columns as fallback
-        return [], [{'name': 'Product', 'id': 'Product'}, {'name': 'Year', 'id': 'Year'}]
+        return [], [], []
 
 
 # Callback for updating the statistical summary table
@@ -759,5 +846,209 @@ def update_3d_graph(*args):
     }
     return figure
 
-# if __name__ == '__main__':
-#     app.run_server(debug=True, host='0.0.0.0', port=8050)
+# Callback to update base product dropdown options
+@app.callback(
+    Output('base-product-dropdown', 'options'),
+    Output('base-product-dropdown', 'value'),
+    [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))]
+)
+def update_base_product_options(*selected_products_groups):
+    selected_products = [p for group in selected_products_groups if group for p in group]
+    
+    if not selected_products:
+        return [], None
+        
+    options = [{'label': descriptions[p], 'value': p} for p in selected_products]
+    return options, selected_products[0]
+
+# Callback for basis graph and statistics
+@app.callback(
+    Output('basis-graph', 'figure'),
+    Output('basis-stats-table', 'data'),
+    Output('basis-stats-table', 'columns'),
+    [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))],
+    Input('base-product-dropdown', 'value'),
+    Input('spread-type-dropdown', 'value'),
+    Input('date-picker-range', 'start_date'),
+    Input('date-picker-range', 'end_date')
+)
+def update_basis_analysis(*args):
+    selected_products_groups = args[:-4]
+    base_product = args[-4]
+    spread_type = args[-3]
+    start_date = args[-2]
+    end_date = args[-1]
+    
+    selected_products = [p for group in selected_products_groups if group for p in group]
+    
+    if not selected_products or not base_product or len(selected_products) < 2:
+        empty_fig = {
+            'data': [],
+            'layout': go.Layout(
+                title='Spread Analysis',
+                annotations=[dict(
+                    text='Please select at least two products and a base product.',
+                    x=0.5, y=0.5,
+                    xref='paper', yref='paper',
+                    showarrow=False
+                )]
+            )
+        }
+        return empty_fig, [], []
+
+    # Filter data based on date range
+    df = lumber_data[(lumber_data['Tag'] >= start_date) & 
+                     (lumber_data['Tag'] <= end_date)].copy()
+    
+    # Calculate spreads
+    traces = []
+    stats_data = []
+    
+    base_price = pd.to_numeric(df[base_product], errors='coerce')
+    
+    for product in selected_products:
+        if product != base_product:
+            product_price = pd.to_numeric(df[product], errors='coerce')
+            
+            if spread_type == 'absolute':
+                spread = product_price - base_price
+                spread_label = 'Spread ($)'
+            else:  # percentage
+                spread = ((product_price - base_price) / base_price) * 100
+                spread_label = 'Spread (%)'
+            
+            # Create trace for this spread
+            traces.append(go.Scatter(
+                x=df['Tag'],
+                y=spread,
+                mode='lines',
+                name=f'{descriptions[product]} vs {descriptions[base_product]}'
+            ))
+            
+            # Calculate statistics
+            stats_data.append({
+                'Product Pair': f'{descriptions[product]} vs {descriptions[base_product]}',
+                'Average Spread': f"{spread.mean():.2f}{'%' if spread_type == 'percentage' else '$'}",
+                'Min Spread': f"{spread.min():.2f}{'%' if spread_type == 'percentage' else '$'}",
+                'Max Spread': f"{spread.max():.2f}{'%' if spread_type == 'percentage' else '$'}",
+                'Std Dev': f"{spread.std():.2f}{'%' if spread_type == 'percentage' else '$'}",
+                'Current Spread': f"{spread.iloc[-1]:.2f}{'%' if spread_type == 'percentage' else '$'}"
+            })
+    
+    # Create the figure
+    figure = {
+        'data': traces,
+        'layout': go.Layout(
+            title=f'Spread Analysis ({spread_type.capitalize()} Spread)',
+            xaxis={'title': 'Date'},
+            yaxis={'title': spread_label},
+            showlegend=True,
+            hovermode='x unified'
+        )
+    }
+    
+    # Create columns for the stats table
+    columns = [
+        {'name': col, 'id': col} for col in [
+            'Product Pair', 'Average Spread', 'Min Spread', 
+            'Max Spread', 'Std Dev', 'Current Spread'
+        ]
+    ]
+    
+    return figure, stats_data, columns
+
+# Add this callback for the basis range analysis
+@app.callback(
+    Output('basis-range-box', 'figure'),
+    [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))],
+    Input('base-product-dropdown', 'value'),
+    Input('spread-type-dropdown', 'value'),
+    Input('basis-period-dropdown', 'value')
+)
+def update_basis_range_analysis(*args):
+    selected_products_groups = args[:-3]
+    base_product = args[-3]
+    spread_type = args[-2]
+    period = args[-1]
+    
+    selected_products = [p for group in selected_products_groups if group for p in group]
+    
+    if not selected_products or not base_product or len(selected_products) < 2:
+        return {'data': [], 'layout': {'title': 'Select products to view basis ranges'}}
+
+    # Calculate date range based on period selection
+    end_date = pd.Timestamp.now()
+    if period == '30D':
+        start_date = end_date - pd.Timedelta(days=30)
+    elif period == '90D':
+        start_date = end_date - pd.Timedelta(days=90)
+    elif period == 'YTD':
+        start_date = pd.Timestamp(end_date.year, 1, 1)
+    elif period == '12M':
+        start_date = end_date - pd.Timedelta(days=365)
+    else:  # ALL
+        start_date = lumber_data['Tag'].min()
+
+    df = lumber_data[(lumber_data['Tag'] >= start_date)].copy()
+    base_price = pd.to_numeric(df[base_product], errors='coerce')
+    
+    box_data = []
+    z_scores = []
+    
+    for product in selected_products:
+        if product != base_product:
+            product_price = pd.to_numeric(df[product], errors='coerce')
+            
+            if spread_type == 'absolute':
+                spread = product_price - base_price
+                suffix = '$'
+            else:
+                spread = ((product_price - base_price) / base_price) * 100
+                suffix = '%'
+            
+            # Calculate z-score of current spread
+            current_spread = spread.iloc[-1]
+            mean_spread = spread.mean()
+            std_spread = spread.std()
+            z_score = (current_spread - mean_spread) / std_spread if std_spread != 0 else 0
+            
+            box_data.append(go.Box(
+                y=spread,
+                name=f"{descriptions[product]}",
+                boxpoints='outliers',
+                jitter=0.3,
+                pointpos=-1.8
+            ))
+            
+            z_scores.append({
+                'Product': descriptions[product],
+                'Current': f"{current_spread:.2f}{suffix}",
+                'Mean': f"{mean_spread:.2f}{suffix}",
+                'Z-Score': f"{z_score:.2f}",
+                'Percentile': f"{stats.percentileofscore(spread.dropna(), current_spread):.1f}%"
+            })
+
+    fig = {
+        'data': box_data,
+        'layout': go.Layout(
+            title=f'Basis Distribution ({period})',
+            yaxis={'title': f'Spread ({suffix})'},
+            showlegend=True,
+            annotations=[
+                go.layout.Annotation(
+                    x=i,
+                    y=z['Current'].rstrip(suffix),
+                    text=f"Current: {z['Current']}<br>Z: {z['Z-Score']}<br>%ile: {z['Percentile']}",
+                    showarrow=True,
+                    arrowhead=7,
+                    ax=0,
+                    ay=-40
+                ) for i, z in enumerate(z_scores)
+            ]
+        )
+    }
+    
+    return fig
+
+if __name__ == '__main__':
+     app.run_server(debug=True, host='0.0.0.0', port=8050)

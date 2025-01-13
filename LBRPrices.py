@@ -11,43 +11,36 @@ from scipy import stats
 import plotly.express as px
 from PIL import ImageColor
 
-# Initialize the app with a Bootstrap stylesheet
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
-server = app.server  # This is for WSGI servers to use
 
-# GitHub data URL
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
+server = app.server 
+
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/ethanmandarano/LBRapp/refs/heads/main/lumber_data.csv"
 
-# Load and process the data 
+
 lumber_data_full = pd.read_csv(GITHUB_RAW_URL)
 
-# Extract descriptions (assuming the first row contains descriptions)
 descriptions = lumber_data_full.iloc[0, 1:].to_dict()
 
-# Copy data excluding the first row (which contains descriptions)
+
 lumber_data = lumber_data_full.iloc[1:].copy()
 
-# Parse dates with specified format
 lumber_data['Tag'] = pd.to_datetime(lumber_data['Tag'], format='%m/%d/%Y', errors='coerce')
 
-# Drop rows with unparseable dates
 lumber_data = lumber_data.dropna(subset=['Tag'])
 
-# Remove duplicate dates
 lumber_data = lumber_data.drop_duplicates(subset=['Tag'])
 
-# Ensure the dates are sorted
 lumber_data.sort_values('Tag', inplace=True)
 
-# Reset the index if necessary
+# reset if needed
 lumber_data.reset_index(drop=True, inplace=True)
 
 
-# Get the latest prices and second-to-latest prices
+# update to latest
 latest_prices = lumber_data.iloc[-1, 1:].to_dict()
 previous_prices = lumber_data.iloc[-2, 1:].to_dict()
 
-# Calculate percentage changes
 pct_changes = {}
 for col in latest_prices:
     if col in previous_prices and previous_prices[col] != 0:
@@ -56,18 +49,16 @@ for col in latest_prices:
     else:
         pct_changes[col] = 0
 
-# Identify the unique types based on last three words
 types = set(' '.join(desc.split()[-3:]) for desc in descriptions.values())
 
 products_by_type = {t: [] for t in types}
 for col, desc in descriptions.items():
-    type_name = ' '.join(desc.split()[-3:])  # Get last three words
+    type_name = ' '.join(desc.split()[-3:])  
     if type_name in types:
-        # Format the percentage change with color and arrow
         pct_change = pct_changes.get(col, 0)
         arrow = "↑" if pct_change > 0 else "↓" if pct_change < 0 else "→"
         
-        # Define color based on percentage change
+        
         if pct_change > 0:
             color = "green"
         elif pct_change < 0:
@@ -77,12 +68,12 @@ for col, desc in descriptions.items():
         
         products_by_type[type_name].append({
             'label': html.Div([
-                # Description column
+                
                 html.Div(
                     desc,
                     style={
                         'display': 'inline-block',
-                        'width': '60%',  # Adjust width as needed
+                        'width': '60%', 
                         'padding-right': '10px',
                         'font-size': '13px',
                         'white-space': 'nowrap',
@@ -90,19 +81,19 @@ for col, desc in descriptions.items():
                         'text-overflow': 'ellipsis'
                     }
                 ),
-                # Price column
+
                 html.Div(
                     f"${latest_prices.get(col, 'N/A')}",
                     style={
                         'display': 'inline-block',
-                        'width': '20%',  # Adjust width as needed
+                        'width': '20%', 
                         'text-align': 'right',
                         'padding-right': '10px',
                         'font-size': '13px',
                         'white-space': 'nowrap'
                     }
                 ),
-                # Percentage change column
+
                 html.Div(
                     [
                         html.Span(
@@ -116,7 +107,7 @@ for col, desc in descriptions.items():
                     ],
                     style={
                         'display': 'inline-block',
-                        'width': '20%',  # Adjust width as needed
+                        'width': '20%',  
                         'text-align': 'right'
                     }
                 )
@@ -132,7 +123,7 @@ for col, desc in descriptions.items():
             'value': col
         })
 
-# Generate the layout components
+
 checklist_components = []
 for idx, (t, products) in enumerate(products_by_type.items()):
     checklist_components.extend([
@@ -153,7 +144,7 @@ for idx, (t, products) in enumerate(products_by_type.items()):
         html.Hr(style={'margin': '4px 0'}),
     ])
 
-# Define the app layout
+
 app.layout = dbc.Container([
     dbc.Row([
         dbc.Col([
@@ -322,7 +313,7 @@ app.layout = dbc.Container([
     ]),
 ], fluid=True)
 
-# Callback for downloading data
+
 @app.callback(
     Output("download-data", "data"),
     Input("download-button", "n_clicks"),
@@ -337,7 +328,7 @@ def download_data(n_clicks, *args):
     if not n_clicks:
         raise PreventUpdate
 
-    # Gather all selected products from all checklists
+
     selected_products = [product for group in selected_products_groups if group for product in group]
 
     if not selected_products:
@@ -350,7 +341,7 @@ def download_data(n_clicks, *args):
 
     return dict(content=csv_string, filename="selected_data.csv")
 
-# Callback for updating the main graph
+
 @app.callback(
     Output('lumber-graph', 'figure'),
     [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))],
@@ -383,7 +374,7 @@ def update_graph(*args):
 
     traces = []
     for product in selected_products:
-        # Original price trace
+
         traces.append(go.Scatter(
             x=df['Tag'],
             y=df[product],
@@ -401,7 +392,7 @@ def update_graph(*args):
         )
     }
 
-# Callback for updating the correlation heatmap
+
 @app.callback(
     Output('correlation-heatmap', 'figure'),
     [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))],
@@ -433,7 +424,7 @@ def update_heatmap(*args):
     df = df[selected_products].apply(pd.to_numeric, errors='coerce').dropna()
     corr_df = df.corr()
 
-    # Create the heatmap
+
     heatmap = go.Heatmap(
         z=corr_df.values,
         x=[descriptions[p] for p in corr_df.columns],
@@ -449,13 +440,13 @@ def update_heatmap(*args):
             title='Correlation Heatmap',
             xaxis={'title': 'Products'},
             yaxis={'title': 'Products'},
-            width=1200,  # Adjust the width of the heatmap
-            height=600,  # Adjust the height of the heatmap
-            margin={'l': 200, 'b': 100, 't': 50, 'r': 50}  # Tweak the margins to fit the heatmap
+            width=1200, 
+            height=600,  
+            margin={'l': 200, 'b': 100, 't': 50, 'r': 50} 
         )
     }
 
-# Callback for updating the volatility graph
+
 @app.callback(
     Output('volatility-graph', 'figure'),
     [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))],
@@ -483,23 +474,22 @@ def update_volatility_graph(*args):
             )
         }
 
-    # Filter data based on date range
+    
     df = lumber_data[(lumber_data['Tag'] >= start_date) & (lumber_data['Tag'] <= end_date)]
     df = df[['Tag'] + selected_products].copy()
     df['Tag'] = pd.to_datetime(df['Tag'])
     df.sort_values('Tag', inplace=True)
 
-    # Convert selected product columns to numeric
     for col in selected_products:
         df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    # Drop rows with NaN values in any of the selected columns
+
     df.dropna(subset=selected_products, inplace=True)
 
     traces = []
     for product in selected_products:
         df[f'{product}_returns'] = df[product].pct_change()
-        df[f'{product}_volatility'] = df[f'{product}_returns'].rolling(window=5).std() * np.sqrt(252) * 100  # Convert to percentage
+        df[f'{product}_volatility'] = df[f'{product}_returns'].rolling(window=5).std() * np.sqrt(252) * 100  # Convert to perctrnt
         traces.append(go.Scatter(
             x=df['Tag'],
             y=df[f'{product}_volatility'],
@@ -518,13 +508,13 @@ def update_volatility_graph(*args):
     }
     return figure
 
-# Callback for updating the seasonality chart
+
 @app.callback(
     Output('seasonality-chart', 'figure'),
     [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))],
     Input('date-picker-range', 'start_date'),
     Input('date-picker-range', 'end_date'),
-    Input('aggregation-method', 'value')  # Include aggregation method
+    Input('aggregation-method', 'value')  
 )
 def update_seasonality_chart(*args):
     selected_products_groups = args[:-3]
@@ -532,11 +522,11 @@ def update_seasonality_chart(*args):
     end_date = args[-2]
     agg_method = args[-1]
 
-    # Gather all selected products
+
     selected_products = [product for group in selected_products_groups if group for product in group]
 
     if not selected_products:
-        # Return an empty figure with a message
+
         return {
             'data': [],
             'layout': go.Layout(
@@ -551,24 +541,23 @@ def update_seasonality_chart(*args):
             )
         }
 
-    # Filter data based on date range
+
     df = lumber_data.copy()
     df = df[(df['Tag'] >= start_date) & (df['Tag'] <= end_date)]
     df['Month'] = df['Tag'].dt.month
 
     traces = []
     for product in selected_products:
-        # Convert product data to numeric
+
         df[product] = pd.to_numeric(df[product], errors='coerce')
 
         product_df = df[['Month', product]].dropna()
         if product_df.empty:
             continue
 
-        # Use the selected aggregation method
         monthly_avg = product_df.groupby('Month')[product].agg(agg_method)
 
-        # Ensure months are in correct order
+        # hvave to order months 
         monthly_avg = monthly_avg.reindex(range(1, 13))
 
         traces.append(go.Scatter(
@@ -590,7 +579,7 @@ def update_seasonality_chart(*args):
     return figure
 
 
-# Callback for updating the seasonality table
+
 @app.callback(
     Output('seasonality-table', 'data'),
     Output('seasonality-table', 'columns'),
@@ -611,7 +600,7 @@ def update_seasonality_table(*args):
         if not selected_products:
             return [], [], []
 
-        # Filter data
+
         df = lumber_data.copy()
         df = df[(df['Tag'] >= start_date) & (df['Tag'] <= end_date)]
         df['Year'] = df['Tag'].dt.year
@@ -643,7 +632,7 @@ def update_seasonality_table(*args):
                     if pd.notnull(value):
                         row[calendar.month_name[month]] = f"{value:.2f}%"
                         
-                        # Add conditional styling for this cell
+
                         style_data_conditional.append({
                             'if': {
                                 'filter_query': f'{{Product}} = "{descriptions[product]}" && {{Year}} = {int(year)} && {{{calendar.month_name[month]}}} = "{value:.2f}%"',
@@ -655,7 +644,7 @@ def update_seasonality_table(*args):
                         row[calendar.month_name[month]] = "N/A"
                 data_list.append(row)
 
-        # Build the columns
+
         columns = [
             {'name': 'Product', 'id': 'Product'},
             {'name': 'Year', 'id': 'Year'},
@@ -673,8 +662,7 @@ def update_seasonality_table(*args):
         return [], [], []
 
 
-# Callback for updating the statistical summary table
-# (Use the updated function from the previous fix)
+
 @app.callback(
     Output('stats-table', 'data'),
     Output('stats-table', 'columns'),
@@ -683,7 +671,7 @@ def update_seasonality_table(*args):
     Input('date-picker-range', 'end_date')
 )
 def update_stats_table(*args):
-    # (Code as updated previously to fix the error)
+
     selected_products_groups = args[:-2]
     start_date = args[-2]
     end_date = args[-1]
@@ -692,7 +680,7 @@ def update_stats_table(*args):
     if not selected_products:
         return [], []
 
-    # Ensure 'LCBM' is included for beta calculation, and remove duplicates
+
     columns_to_include = ['Tag'] + list(set(selected_products + ['LCBM']))
     df = lumber_data[(lumber_data['Tag'] >= start_date) & (lumber_data['Tag'] <= end_date)]
     df = df[columns_to_include].apply(pd.to_numeric, errors='coerce').dropna()
@@ -702,16 +690,16 @@ def update_stats_table(*args):
         product_series = df[product]
         lcbm_series = df['LCBM']
 
-        # Ensure product_series is a Series
+
         if isinstance(product_series, pd.DataFrame):
             product_series = product_series.iloc[:, 0]
 
-        # Align the series
+
         common_index = product_series.index.intersection(lcbm_series.index)
         product_series = product_series.loc[common_index]
         lcbm_series = lcbm_series.loc[common_index]
 
-        # Compute statistics
+
         mean = product_series.mean()
         median = product_series.median()
         std_dev = product_series.std()
@@ -726,7 +714,7 @@ def update_stats_table(*args):
         else:
             coef_variation = np.nan
 
-        # Calculate beta vs LCBM and correlation
+        # assume lcbm as index and calc slope
         if product != 'LCBM':
             covariance = np.cov(product_series, lcbm_series)[0][1]
             variance_lcbm = lcbm_series.var()
@@ -754,14 +742,14 @@ def update_stats_table(*args):
             'Correlation with LCBM': round(correlation, 2) if pd.notnull(correlation) else np.nan
         })
 
-    # Create DataFrame
+
     stats_df = pd.DataFrame(stats_list)
     columns = [{'name': col, 'id': col} for col in stats_df.columns]
     data = stats_df.to_dict('records')
 
     return data, columns
 
-# Callback for updating the 3D price visualization
+
 @app.callback(
     Output('3d-price-graph', 'figure'),
     [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))],
@@ -792,7 +780,7 @@ def update_3d_graph(*args):
             )
         }
 
-    # Prepare data
+
     df = lumber_data[(lumber_data['Tag'] >= start_date) & (lumber_data['Tag'] <= end_date)]
     df = df[['Tag'] + selected_products].copy()
     df.sort_values('Tag', inplace=True)
@@ -800,17 +788,17 @@ def update_3d_graph(*args):
     df.set_index('Tag', inplace=True)
     df.dropna(inplace=True)
 
-    # Calculate rolling volatility for each product
+
     volatility_df = pd.DataFrame()
     for product in selected_products:
         df[product] = pd.to_numeric(df[product], errors='coerce')
         returns = df[product].pct_change()
-        volatility = returns.rolling(window=5).std() * np.sqrt(252) * 100  # Annualized volatility
+        volatility = returns.rolling(window=5).std() * np.sqrt(252) * 100  # Annual volatility
         volatility_df[product] = volatility
 
     volatility_df.dropna(inplace=True)
 
-    # Create meshgrid for dates and products
+
     dates = volatility_df.index
     products = selected_products
 
@@ -845,7 +833,7 @@ def update_3d_graph(*args):
     }
     return figure
 
-# Callback to update base product dropdown options
+
 @app.callback(
     Output('base-product-dropdown', 'options'),
     Output('base-product-dropdown', 'value'),
@@ -860,7 +848,7 @@ def update_base_product_options(*selected_products_groups):
     options = [{'label': descriptions[p], 'value': p} for p in selected_products]
     return options, selected_products[0]
 
-# Callback for basis graph and statistics
+
 @app.callback(
     Output('basis-graph', 'figure'),
     Output('basis-stats-table', 'data'),
@@ -895,11 +883,11 @@ def update_basis_analysis(*args):
         }
         return empty_fig, [], []
 
-    # Filter data based on date range
+
     df = lumber_data[(lumber_data['Tag'] >= start_date) & 
                      (lumber_data['Tag'] <= end_date)].copy()
     
-    # Calculate spreads
+
     traces = []
     stats_data = []
     
@@ -916,7 +904,6 @@ def update_basis_analysis(*args):
                 spread = ((product_price - base_price) / base_price) * 100
                 spread_label = 'Spread (%)'
             
-            # Create trace for this spread
             traces.append(go.Scatter(
                 x=df['Tag'],
                 y=spread,
@@ -924,7 +911,7 @@ def update_basis_analysis(*args):
                 name=f'{descriptions[product]} vs {descriptions[base_product]}'
             ))
             
-            # Calculate statistics
+
             stats_data.append({
                 'Product Pair': f'{descriptions[product]} vs {descriptions[base_product]}',
                 'Average Spread': f"{spread.mean():.2f}{'%' if spread_type == 'percentage' else '$'}",
@@ -934,7 +921,7 @@ def update_basis_analysis(*args):
                 'Current Spread': f"{spread.iloc[-1]:.2f}{'%' if spread_type == 'percentage' else '$'}"
             })
     
-    # Create the figure
+
     figure = {
         'data': traces,
         'layout': go.Layout(
@@ -946,7 +933,7 @@ def update_basis_analysis(*args):
         )
     }
     
-    # Create columns for the stats table
+
     columns = [
         {'name': col, 'id': col} for col in [
             'Product Pair', 'Average Spread', 'Min Spread', 
@@ -956,7 +943,7 @@ def update_basis_analysis(*args):
     
     return figure, stats_data, columns
 
-# Add this callback for the basis range analysis
+
 @app.callback(
     Output('basis-range-box', 'figure'),
     [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))],
@@ -975,7 +962,7 @@ def update_basis_range_analysis(*args):
     if not selected_products or not base_product or len(selected_products) < 2:
         return {'data': [], 'layout': {'title': 'Select products to view basis ranges'}}
 
-    # Calculate date range based on period selection
+
     end_date = pd.Timestamp.now()
     if period == '30D':
         start_date = end_date - pd.Timedelta(days=30)
@@ -1005,7 +992,7 @@ def update_basis_range_analysis(*args):
                 spread = ((product_price - base_price) / base_price) * 100
                 suffix = '%'
             
-            # Calculate z-score of current spread
+
             current_spread = spread.iloc[-1]
             mean_spread = spread.mean()
             std_spread = spread.std()

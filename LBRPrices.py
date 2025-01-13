@@ -14,6 +14,7 @@ from PIL import ImageColor
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
 server = app.server 
+ 
 
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/ethanmandarano/LBRapp/refs/heads/main/lumber_data.csv"
 
@@ -21,7 +22,6 @@ GITHUB_RAW_URL = "https://raw.githubusercontent.com/ethanmandarano/LBRapp/refs/h
 lumber_data_full = pd.read_csv(GITHUB_RAW_URL)
 
 descriptions = lumber_data_full.iloc[0, 1:].to_dict()
-
 
 lumber_data = lumber_data_full.iloc[1:].copy()
 
@@ -510,7 +510,7 @@ def update_volatility_graph(*args):
 
 
 @app.callback(
-    Output('seasonality-chart', 'figure'),
+    Output('seasonality-chart', 'figure'), #new month over month vs %change avg over month
     [Input(f'lumber-checklist-{idx}', 'value') for idx in range(len(types))],
     Input('date-picker-range', 'start_date'),
     Input('date-picker-range', 'end_date'),
@@ -600,9 +600,8 @@ def update_seasonality_table(*args):
         if not selected_products:
             return [], [], []
 
-
-        df = lumber_data.copy()
-        df = df[(df['Tag'] >= start_date) & (df['Tag'] <= end_date)]
+        # Get data and add Year/Month columns
+        df = lumber_data[(lumber_data['Tag'] >= start_date) & (lumber_data['Tag'] <= end_date)].copy()
         df['Year'] = df['Tag'].dt.year
         df['Month'] = df['Tag'].dt.month
 
@@ -610,32 +609,34 @@ def update_seasonality_table(*args):
         style_data_conditional = []
 
         for product in selected_products:
+            # Convert to numeric and aggregate by month
             df[product] = pd.to_numeric(df[product], errors='coerce')
-            product_df = df[['Year', 'Month', product]].dropna()
+            monthly_agg = df.groupby(['Year', 'Month'])[product].agg(agg_method).reset_index(name='MonthlyPrice')
+            
+            # Sort and calculate MoM changes
+            monthly_agg.sort_values(['Year', 'Month'], inplace=True)
+            monthly_agg['PrevMonthPrice'] = monthly_agg['MonthlyPrice'].shift(1)
+            monthly_agg['MoM_Change'] = ((monthly_agg['MonthlyPrice'] - monthly_agg['PrevMonthPrice']) / 
+                                       monthly_agg['PrevMonthPrice']) * 100
 
-            product_df['prev_value'] = product_df[product].shift(1)
-            product_df['pct_change'] = (
-                (product_df[product] - product_df['prev_value']) 
-                / product_df['prev_value']
-            ) * 100
+            # Pivot to get Year/Month matrix
+            pivot_df = monthly_agg.pivot(index='Year', columns='Month', values='MoM_Change')
 
-            grouped = product_df.groupby(['Year', 'Month'])['pct_change'].agg(agg_method).reset_index()
-            pivot_df = grouped.pivot(index='Year', columns='Month', values='pct_change')
-
-            for year in pivot_df.index:
+            # Build table rows
+            for year_val in pivot_df.index:
                 row = {
                     'Product': descriptions[product],
-                    'Year': int(year)
+                    'Year': int(year_val)
                 }
                 for month in range(1, 13):
-                    value = pivot_df.get(month, {}).get(year)
+                    value = pivot_df.get(month, {}).get(year_val)
                     if pd.notnull(value):
                         row[calendar.month_name[month]] = f"{value:.2f}%"
-                        
-
                         style_data_conditional.append({
                             'if': {
-                                'filter_query': f'{{Product}} = "{descriptions[product]}" && {{Year}} = {int(year)} && {{{calendar.month_name[month]}}} = "{value:.2f}%"',
+                                'filter_query': (f'{{Product}} = "{descriptions[product]}" && ' 
+                                               f'{{Year}} = {int(year_val)} && '
+                                               f'{{{calendar.month_name[month]}}} = "{value:.2f}%"'),
                                 'column_id': calendar.month_name[month]
                             },
                             'color': 'green' if value > 0 else 'red' if value < 0 else 'black'
@@ -644,16 +645,11 @@ def update_seasonality_table(*args):
                         row[calendar.month_name[month]] = "N/A"
                 data_list.append(row)
 
-
+        # Define columns
         columns = [
             {'name': 'Product', 'id': 'Product'},
             {'name': 'Year', 'id': 'Year'},
-        ]
-        for month in range(1, 13):
-            columns.append({
-                'name': calendar.month_name[month],
-                'id': calendar.month_name[month]
-            })
+        ] + [{'name': calendar.month_name[m], 'id': calendar.month_name[m]} for m in range(1, 13)]
 
         return data_list, columns, style_data_conditional
 
